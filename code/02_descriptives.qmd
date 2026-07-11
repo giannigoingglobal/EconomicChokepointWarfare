@@ -1,0 +1,235 @@
+---
+title: |
+  Code Template
+subtitle: |
+  Untitled Project: A great project
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-tools: true
+execute:
+  echo: true
+  warning: true
+  eval: true
+  message: true
+---
+
+
+# Setup
+
+```{r}
+#| label: setup
+# To track computation time
+start_time <- Sys.time()
+
+# set width of console output
+options(width = 80)
+
+
+# Install and load required packages
+p_required <- c(
+  "tidyverse",
+  "here",
+  "knitr",
+  "sessioninfo"
+)
+packages <- rownames(installed.packages())
+p_to_install <- p_required[!(p_required %in% packages)]
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+sapply(p_required, require, character.only = TRUE)
+rm(p_required, p_to_install, packages)
+```
+
+# Code 1
+
+```{r}
+#| label: select-countries
+# start your code here
+USA <- dependency %>%
+  filter(iso3 == "USA") %>%
+  select(canal, q_canal, v_canal) %>%
+  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
+  arrange(desc(q_canal))
+
+GER <- dependency %>%
+  filter(iso3 == "DEU") %>%
+  select(canal, q_canal, v_canal) %>%
+  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
+  arrange(desc(q_canal_million))
+
+China <- dependency %>%
+  filter(iso3 == "CHN") %>%
+  select(canal, q_canal, v_canal) %>%
+  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
+  arrange(desc(q_canal))
+```
+
+```{r}
+#| label: fig-dependency
+dependency %>%
+  filter(
+    canal == "Strait of Hormuz",
+    v_canal_million < 1e+06
+  ) %>%
+  ggplot(aes(x = iso3, y = v_canal_million)) +
+  geom_point()
+```
+
+<!-- visualize Oil asymmetry
+TODO: I need a basic overview that claims how trade of oil is especially asymmetrical
+
+
+--> 
+
+
+
+<!-- 
+Interpretation:
+
+oil_q_canal = estimated quantity of crude oil for that country routed via this canal.
+
+dep_oil_share_q = share of the country’s crude oil imports (by quantity) that go through this canal → Stakes 
+
+Same for value with dep_oil_share_v if you prefer value‑based dependence.
+-->
+
+```{r}
+dep_oil %>%
+  filter(importer_iso3 == "USA") %>%
+  select(importer_iso3, canal, dep_share_sea, oil_q_canal, dep_oil_share_q) %>%
+  arrange(desc(dep_oil_share_q)) %>%
+  ggplot(aes(x = canal, y = dep_share_sea)) +
+  geom_point()
+```
+
+
+
+
+```{r}
+Propensity_React <- read.csv(here::here(
+  "data",
+  "03_final",
+  "Propensity_to_React_index.csv"
+))
+
+standard_PR <-
+  Propensity_React %>%
+  mutate(
+    RP_ic_std = (RP_ic - min(RP_ic, na.rm = TRUE)) /
+      (max(RP_ic, na.rm = TRUE) - min(RP_ic, na.rm = TRUE))
+  )
+
+stakes_z <- Propensity_React %>%
+  mutate(
+    RP_ic_z = (RP_ic - mean(RP_ic, na.rm = TRUE)) /
+      sd(RP_ic, na.rm = TRUE)
+  )
+
+stakes_z_by_canal <- Propensity_React %>%
+  group_by(canal) %>%
+  mutate(
+    RP_ic_z = (RP_ic - mean(RP_ic, na.rm = TRUE)) /
+      sd(RP_ic, na.rm = TRUE)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+# optional
+RP_overview <- stakes_z_by_canal %>%
+  rename(country_iso3 = importer_iso3) %>%
+  right_join(country_codes, by = "country_iso3") %>%
+  select(country_name, canal, RP_ic_z)
+```
+
+
+```{r}
+#| label: plots
+top_by_canal <- stakes_z_by_canal %>%
+  group_by(canal) %>%
+  slice_max(order_by = RP_ic_z, n = 5, with_ties = FALSE) %>%
+  ungroup()
+
+top_country <- ggplot(
+  top_by_canal,
+  aes(x = RP_ic_z, y = reorder(importer_iso3, RP_ic_z))
+) +
+  geom_col(fill = "steelblue") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  facet_wrap(~canal, scales = "free_y") +
+  labs(
+    x = "Propensity to React (z-score)",
+    y = "Country",
+    title = "Top countries",
+    subtitle = "by standardized Propensity to React, per canal"
+  ) +
+  theme_classic()
+
+ggsave(here::here("figures", "Top_Countries_per_Canal.png"), top_country)
+
+
+selected_countries <- c("USA", "CHN", "FRA", "KOR")
+
+plot_data <- stakes_z_by_canal %>%
+  filter(importer_iso3 %in% selected_countries)
+
+ggplot(plot_data, aes(x = canal, y = RP_ic_z, fill = importer_iso3)) +
+  geom_col(position = position_dodge(width = 0.7)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  labs(
+    x = "Strait / Canal",
+    y = "Propensity to React (z-score)",
+    fill = "Country",
+    title = "Propensity to React by Country"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(
+  plot_data,
+  aes(x = canal, y = RP_ic_z, group = importer_iso3, color = importer_iso3)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~importer_iso3) +
+  labs(
+    x = "Strait / Canal",
+    y = "Propensity to React (z-score)",
+    title = "Propensity to React by Country"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Session Info
+
+```{r}
+#| label: session-info
+session_info()
+```
+
+
+# Computation Time
+
+```{r}
+#| label: computation-time
+end_time <- Sys.time()
+
+computation_time <- end_time - start_time
+
+message(paste(
+  "Computation completed in:",
+  round(as.numeric(computation_time, units = "secs"), 2),
+  "seconds.
+"
+))
+rm(end_time, start_time)
+```
+
+
+  

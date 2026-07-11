@@ -1,0 +1,450 @@
+---
+title: |
+  Code Template
+subtitle: |
+  Untitled Project: A great project
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-tools: true
+execute:
+  echo: true
+  warning: true
+  eval: true
+  message: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+# To track computation time
+start_time <- Sys.time()
+
+# set width of console output
+options(width = 80)
+
+
+# Install and load required packages
+p_required <- c(
+  "tidyverse",
+  "here",
+  "knitr",
+  "sessioninfo"
+)
+packages <- rownames(installed.packages())
+p_to_install <- p_required[!(p_required %in% packages)]
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+sapply(p_required, require, character.only = TRUE)
+rm(p_required, p_to_install, packages)
+```
+
+# Code 1
+
+```{r}
+#| label: import
+#| cache: true
+dependency <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "chokepoint_country_dependency.csv"
+))
+trade_2024 <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "BACI_trade_product_level",
+  "BACI_HS92_Y2024_V202601.csv"
+))
+product <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "BACI_trade_product_level",
+  "product_codes_HS92_V202601.csv"
+))
+country_codes <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "BACI_trade_product_level",
+  "country_codes_V202601.csv"
+))
+
+country_codes_manual <- tibble(
+  country_name = c("Taiwan", "Vietnam"),
+  country_iso3 = c("TWN", "VNM")
+)
+country_codes <- country_codes %>%
+  bind_rows(country_codes_manual)
+
+country_codes %>%
+  write.csv(here::here("data", "02_processed", "country_codes.csv"))
+
+EI <- read.csv(
+  here::here("data", "01_raw", "EI-Stats-2026.csv"),
+  stringsAsFactors = FALSE,
+  skip = 2
+)
+
+Mil_firepower <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "global_military_firepower_2025.csv"
+))
+
+regimes <- read.csv(here::here(
+  "data",
+  "01_raw",
+  "political-regimes.csv"
+))
+```
+
+```{r}
+#| label: filter-dependency
+dependency <- dependency %>%
+  filter(
+    canal %in%
+      c(
+        "Malacca Strait",
+        "Gibraltar Strait",
+        "Suez Canal",
+        "Strait of Hormuz",
+        "Panama Canal",
+        "Taiwan Strait"
+      )
+  ) %>%
+  select(
+    iso3,
+    canal,
+    q_sea_predict:share_q
+  )
+```
+
+```{r}
+#| label: join-BACI_2024
+baci <- trade_2024 %>%
+  left_join(country_codes, by = c("i" = "country_code")) %>%
+  rename(
+    "exporter_iso3" = "country_iso3",
+    "exporter_name" = "country_name"
+  ) %>%
+  left_join(country_codes, by = c("j" = "country_code")) %>%
+  rename(
+    "importer_iso3" = "country_iso3",
+    "importer_name" = "country_name"
+  ) %>%
+  select(
+    k,
+    v,
+    q,
+    exporter_iso3,
+    importer_iso3,
+    exporter_name,
+    importer_name
+  ) %>%
+  rename(
+    "product" = k,
+    "value" = v,
+    "quantity" = q
+  )
+
+
+oil_code <- 270900 #taken from the product code dataset
+baci_oil <- baci %>% filter(product %in% oil_code)
+baci_oil %>% write.csv(here::here("data", "02_processed", "oil_trade.csv"))
+```
+
+
+```{r}
+
+names(EI) <- sub("^X", "", names(EI))
+names(EI) <- sub("Million.tonnes", "country", names(EI))
+names(EI)[is.na(names(EI)) | names(EI) == ""] <- "empty"
+
+ei_clean <- EI %>%
+
+  filter(!is.na(country), country != "") %>%
+
+  filter(
+    !country %in%
+      c(
+        "Africa",
+        "Europe",
+        "Asia",
+        "North America",
+        "South America",
+        "Middle East",
+        "Oceania"
+      ),
+    !grepl("Total", country, ignore.case = TRUE)
+  )
+
+year_cols <- as.character(1965:2025)
+
+ei_clean <- ei_clean %>%
+  mutate(across(all_of(year_cols), ~ suppressWarnings(as.numeric(.x))))
+
+ei_clean <- ei_clean %>%
+  filter(rowSums(!is.na(across(all_of(year_cols)))) > 0)
+
+
+ei_long <- ei_clean %>%
+  pivot_longer(
+    cols = `1965`:`2025`,
+    names_to = "year",
+    values_to = "oil_tonnes"
+  ) %>%
+  mutate(year = as.integer(year)) %>%
+  select(country, year, oil_tonnes)
+
+ei_2024 <- ei_long %>%
+  filter(year == 2024) %>%
+  mutate(
+    country = str_trim(country),
+    country = str_replace_all(country, "T�rkiye", "TÃ¼rkiye"),
+    country = str_replace_all(country, "South Korea", "Rep. of Korea"),
+    country = str_replace_all(country, "US", "USA"),
+    country = str_replace_all(
+      country,
+      "Trinidad & Tobago",
+      "Trinidad and Tobago"
+    )
+  )
+
+EI_ISO3 <- ei_2024 %>%
+  left_join(country_codes, by = c("country" = "country_name")) %>%
+  rename(importer_iso3 = country_iso3) %>%
+  select(importer_iso3, oil_tonnes, country, year)
+
+EI_ISO3 %>%
+  write.csv(here::here(
+    "data",
+    "02_processed",
+    "EI_2024_oil_consumption.csv"
+  ))
+
+rm(ei_2024, ei_clean, ei_long)
+```
+
+
+```{r}
+EI_ISO3 <-
+  read.csv(here::here(
+    "data",
+    "02_processed",
+    "EI_2024_oil_consumption.csv"
+  ))
+
+oil_trade <- read.csv(here::here("data", "02_processed", "oil_trade.csv"))
+
+oil_imports <- oil_trade %>%
+  group_by(importer_iso3) %>%
+  summarize(
+    oil_v_total = sum(value, na.rm = TRUE),
+    oil_q_total = sum(quantity, na.rm = TRUE)
+  )
+
+dep_country <- dependency %>%
+  mutate(
+    dep_share_sea = if_else(q_sea_predict > 0, q_canal / q_sea_predict, 0)
+  )
+
+dep_oil <- dep_country %>%
+  rename(importer_iso3 = iso3) %>%
+  left_join(oil_imports, by = "importer_iso3")
+
+dep_oil <- dep_oil %>%
+  mutate(
+    oil_q_canal = dep_share_sea * oil_q_total,
+    oil_v_canal = dep_share_sea * oil_v_total,
+    dep_oil_share_q = if_else(
+      oil_q_total > 0,
+      oil_q_canal / oil_q_total,
+      NA_real_
+    ),
+    dep_oil_share_v = if_else(
+      oil_v_total > 0,
+      oil_v_canal / oil_v_total,
+      NA_real_
+    )
+  )
+
+criticality <- EI_ISO3 %>%
+  select(importer_iso3, oil_tonnes) %>%
+  rename(criticality_oil_tonnes = oil_tonnes)
+
+dep_oil_full <- dep_oil %>%
+  left_join(criticality, by = "importer_iso3")
+
+reroute <- tibble(
+  canal = c(
+    # no rerouting
+    "Strait of Hormuz",
+    "Bosporus Straits",
+    # long rerouting
+    "Bab el-Mandeb",
+    "Gibraltar Strait",
+    "Suez Canal",
+    "Panama Canal",
+    # short_rerouting
+    "Malacca Strait",
+    "Taiwan Strait"
+  ),
+  rerouting_share = c(
+    # no rerouting
+    0,
+    0,
+    # long rerouting
+    0.4,
+    0.4,
+    0.4,
+    0.4,
+    # short rerouting
+    0.8,
+    0.8
+  )
+)
+dep_oil_full <- dep_oil_full %>%
+  left_join(reroute, by = "canal")
+
+stakes <- dep_oil_full %>%
+  mutate(
+    Stakes_ic = dep_oil_share_q *
+      criticality_oil_tonnes *
+      (1 - rerouting_share)
+  )
+
+# if necessary, aggregate to each country
+stakes_country <- stakes %>%
+  group_by(importer_iso3) %>%
+  summarise(Stakes_i = sum(Stakes_ic, na.rm = TRUE))
+
+stakes %>% write.csv(here::here("data", "03_final", "Stakes.csv"))
+```
+
+
+
+```{r}
+naval_power <- Mil_firepower %>%
+  select(country, total_naval_fleet) %>%
+  mutate(
+    country = str_trim(country),
+    country = str_replace_all(country, " and ", " & "),
+    country = str_replace_all(country, "Turkiye", "TÃ¼rkiye"),
+    country = str_replace_all(country, "South Korea", "Rep. of Korea"),
+    country = str_replace_all(country, "United States", "USA"),
+    country = str_replace_all(country, "Russia", "Russian Federation")
+  ) %>%
+  rename(country_name = country)
+
+naval_power_iso <- naval_power %>%
+  left_join(country_codes, by = "country_name")
+
+naval_power_iso <- naval_power_iso %>%
+  select(country_iso3, total_naval_fleet) %>%
+  rename(importer_iso3 = country_iso3)
+
+ability_power <- tibble(
+  importer_iso3 = c(
+    "USA",
+    "GBR",
+    "FRA",
+    "DEU",
+    "CHN",
+    "JPN",
+    "IND",
+    "RUS",
+    "BRA",
+    "SAU",
+    "IRN"
+  ),
+  power_cat = c(
+    "global",
+    "global",
+    "global",
+    "global",
+    "global",
+    "regional",
+    "regional",
+    "global",
+    "regional",
+    "regional",
+    "regional"
+  )
+) %>%
+  mutate(
+    power_score = case_when(
+      power_cat == "global" ~ 1.0,
+      power_cat == "regional" ~ 0.6,
+      TRUE ~ 0.3
+    )
+  )
+
+proximity <- tibble(
+  importer_iso3 = c("EGY", "IRN", "OMN", "TUR", "PAN"),
+  canal = c(
+    "Suez Canal",
+    "Strait of Hormuz",
+    "Strait of Hormuz",
+    "Turkish Straits",
+    "Panama Canal"
+  ),
+  proximity_score = 1.0 # full control/bordering
+)
+
+regime_2024 <- regimes %>%
+  filter(Year == 2024) %>%
+  rename(regime_score = "Political.regime", importer_iso3 = Code) %>%
+  mutate(
+    regime_scaled = regime_score / max(regime_score, na.rm = TRUE)
+  )
+
+stakes_with_ability <- stakes %>%
+  left_join(naval_power_iso, by = "importer_iso3") %>%
+  left_join(proximity, by = c("importer_iso3", "canal")) %>%
+  mutate(
+    proximity_score = if_else(is.na(proximity_score), 0.0, proximity_score),
+    ability_score = proximity_score + total_naval_fleet
+  )
+
+stakes_ability_regime <- stakes_with_ability %>%
+  left_join(regime_2024, by = "importer_iso3") %>%
+  write_csv(here::here("data", "03_final", "Single_Scores.csv"))
+
+Propensity_React <- stakes_ability_regime %>%
+  mutate(
+    RP_ic = Stakes_ic * ability_score * regime_scaled
+  ) %>%
+  select(importer_iso3, canal, RP_ic) %>%
+  write_csv(here::here("data", "03_final", "Propensity_to_React_index.csv"))
+```
+
+
+# Session Info
+
+```{r}
+#| label: session-info
+session_info()
+```
+
+
+# Computation Time
+
+```{r}
+#| label: computation-time
+end_time <- Sys.time()
+
+computation_time <- end_time - start_time
+
+message(paste(
+  "Computation completed in:",
+  round(as.numeric(computation_time, units = "secs"), 2),
+  "seconds.
+"
+))
+rm(end_time, start_time)
+```
+
+
+  
