@@ -43,70 +43,7 @@ sapply(p_required, require, character.only = TRUE)
 rm(p_required, p_to_install, packages)
 ```
 
-# Code 1
-
-```{r}
-#| label: select-countries
-# start your code here
-USA <- dependency %>%
-  filter(iso3 == "USA") %>%
-  select(canal, q_canal, v_canal) %>%
-  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
-  arrange(desc(q_canal))
-
-GER <- dependency %>%
-  filter(iso3 == "DEU") %>%
-  select(canal, q_canal, v_canal) %>%
-  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
-  arrange(desc(q_canal_million))
-
-China <- dependency %>%
-  filter(iso3 == "CHN") %>%
-  select(canal, q_canal, v_canal) %>%
-  mutate(q_canal_million = q_canal / 1e6, v_canal_million = v_canal / 1e6) %>%
-  arrange(desc(q_canal))
-```
-
-```{r}
-#| label: fig-dependency
-dependency %>%
-  filter(
-    canal == "Strait of Hormuz",
-    v_canal_million < 1e+06
-  ) %>%
-  ggplot(aes(x = iso3, y = v_canal_million)) +
-  geom_point()
-```
-
-<!-- visualize Oil asymmetry
-TODO: I need a basic overview that claims how trade of oil is especially asymmetrical
-
-
---> 
-
-
-
-<!-- 
-Interpretation:
-
-oil_q_canal = estimated quantity of crude oil for that country routed via this canal.
-
-dep_oil_share_q = share of the country’s crude oil imports (by quantity) that go through this canal → Stakes 
-
-Same for value with dep_oil_share_v if you prefer value‑based dependence.
--->
-
-```{r}
-dep_oil %>%
-  filter(importer_iso3 == "USA") %>%
-  select(importer_iso3, canal, dep_share_sea, oil_q_canal, dep_oil_share_q) %>%
-  arrange(desc(dep_oil_share_q)) %>%
-  ggplot(aes(x = canal, y = dep_share_sea)) +
-  geom_point()
-```
-
-
-
+# Propensity to React Visualization
 
 ```{r}
 Propensity_React <- read.csv(here::here(
@@ -168,8 +105,12 @@ top_country <- ggplot(
   ) +
   theme_classic()
 
-ggsave(here::here("figures", "Top_Countries_per_Canal.png"), top_country)
-
+ggsave(
+  here::here("figures", "Top_Countries_per_Canal.png"),
+  top_country,
+  width = 10,
+  height = 8
+)
 
 selected_countries <- c("USA", "CHN", "FRA", "KOR")
 
