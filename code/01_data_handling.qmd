@@ -342,7 +342,15 @@ naval_power_iso <- naval_power %>%
   left_join(country_codes, by = "country_name")
 
 naval_power_iso <- naval_power_iso %>%
-  select(country_iso3, total_naval_fleet) %>%
+  mutate(
+    total_naval_fleet = if_else(is.na(total_naval_fleet), 0, total_naval_fleet),
+    naval_norm = (total_naval_fleet - min(total_naval_fleet, na.rm = TRUE)) /
+      (max(total_naval_fleet, na.rm = TRUE) -
+        min(total_naval_fleet, na.rm = TRUE))
+  )
+
+naval_power_iso <- naval_power_iso %>%
+  select(country_iso3, total_naval_fleet, naval_norm) %>%
   rename(importer_iso3 = country_iso3)
 
 ability_power <- tibble(
@@ -400,25 +408,40 @@ regime_2024 <- regimes %>%
     regime_scaled = regime_score / max(regime_score, na.rm = TRUE)
   )
 
+regime_2024 %>%
+  write.csv(here::here("data", "02_processed", "regimes_2024.csv"))
+
+w_power <- 0.7
+w_prox <- 0.3
+
 stakes_with_ability <- stakes %>%
   left_join(naval_power_iso, by = "importer_iso3") %>%
   left_join(proximity, by = c("importer_iso3", "canal")) %>%
   mutate(
     proximity_score = if_else(is.na(proximity_score), 0.0, proximity_score),
-    ability_score = proximity_score + total_naval_fleet
+    ability_score = w_prox * proximity_score + naval_norm * w_power
   )
 
 stakes_ability_regime <- stakes_with_ability %>%
-  left_join(regime_2024, by = "importer_iso3") %>%
-  write_csv(here::here("data", "03_final", "Single_Scores.csv"))
+  left_join(regime_2024, by = "importer_iso3")
+
+# write_csv(here::here("data", "03_final", "Single_Scores.csv"))
 
 Propensity_React <- stakes_ability_regime %>%
   mutate(
-    RP_ic = Stakes_ic * ability_score * regime_scaled
+    RP_ic = Stakes_ic * ability_score
   ) %>%
   select(importer_iso3, canal, RP_ic) %>%
-  write_csv(here::here("data", "03_final", "Propensity_to_React_index.csv"))
+  drop_na()
+
+write_csv(
+  Propensity_React,
+  here::here("data", "03_final", "Propensity_to_React_index.csv")
+)
 ```
+
+
+
 
 
 # Session Info

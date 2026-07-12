@@ -32,7 +32,8 @@ p_required <- c(
   "tidyverse",
   "here",
   "knitr",
-  "sessioninfo"
+  "sessioninfo",
+  "kableExtra"
 )
 packages <- rownames(installed.packages())
 p_to_install <- p_required[!(p_required %in% packages)]
@@ -51,6 +52,13 @@ Propensity_React <- read.csv(here::here(
   "03_final",
   "Propensity_to_React_index.csv"
 ))
+country_codes <- read.csv(here::here(
+  "data",
+  "02_processed",
+  "country_codes.csv"
+))
+
+regime_2024 <- read.csv(here::here("data", "02_processed", "regimes_2024.csv"))
 
 standard_PR <-
   Propensity_React %>%
@@ -76,6 +84,7 @@ stakes_z_by_canal <- Propensity_React %>%
 
 ```{r}
 # optional
+
 RP_overview <- stakes_z_by_canal %>%
   rename(country_iso3 = importer_iso3) %>%
   right_join(country_codes, by = "country_iso3") %>%
@@ -145,6 +154,71 @@ ggplot(
   ) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#| label: canal_summary
+table1_canal_summary <- stakes_z_by_canal %>%
+  drop_na(RP_ic_z) %>%
+  group_by(canal) %>%
+  summarise(
+    mean_z = mean(RP_ic_z, na.rm = TRUE),
+    sd_z = sd(RP_ic_z, na.rm = TRUE),
+    min_z = min(RP_ic_z, na.rm = TRUE),
+    max_z = max(RP_ic_z, na.rm = TRUE),
+    share_high = mean(RP_ic_z >= 1, na.rm = TRUE), # z >= 1
+    share_low = mean(RP_ic_z <= -1, na.rm = TRUE) # z <= -1
+  ) %>%
+  ungroup()
+
+kable(table1_canal_summary)
+```
+
+```{r}
+#| label: country_summary
+table2_country_summary <- stakes_z_by_canal %>%
+  drop_na(RP_ic_z) %>%
+  group_by(importer_iso3) %>%
+  summarise(
+    n_canals = n(),
+    mean_z = mean(RP_ic_z, na.rm = TRUE),
+    max_z = max(RP_ic_z, na.rm = TRUE),
+    n_high = sum(RP_ic_z >= 1, na.rm = TRUE), # canals with z >= 1
+    n_low = sum(RP_ic_z <= -1, na.rm = TRUE) # canals with z <= -1
+  ) %>%
+  ungroup() %>%
+  arrange(desc(mean_z)) # optional: sort by mean_z or max_z
+
+
+kable(table2_country_summary)
+```
+
+
+```{r}
+#| label: table_3
+regime_2024_bin <- regime_2024 %>%
+  mutate(
+    regime_type = case_when(
+      regime_score >= 4 ~ "democracy", # 4 = stable dem, 5 = deepening dem
+      TRUE ~ "autocracy" # 0-3 = various autocratic / hybrid
+    )
+  )
+
+stakes_z_regime <- stakes_z_by_canal %>%
+  left_join(regime_2024_bin, by = "importer_iso3")
+
+table3_high_by_regime_canal <- stakes_z_regime %>%
+  drop_na(RP_ic_z, regime_type) %>%
+  mutate(high_prop = RP_ic_z >= 1) %>% # define high-propensity
+  group_by(canal, regime_type) %>%
+  summarise(
+    n_high = sum(high_prop, na.rm = TRUE),
+    n_total = n(),
+    share_high = n_high / n_total
+  ) %>%
+  ungroup()
+
+kable(table3_high_by_regime_canal)
 ```
 
 # Session Info
